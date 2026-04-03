@@ -1,0 +1,15 @@
+[Unit]
+Description=Claude Telegram Bot B (tmux persistent session)
+After=network.target
+
+[Service]
+Type=simple
+User=raf
+WorkingDirectory=/home/raf/claude-telegram-tmux
+ExecStart=/bin/bash /home/raf/claude-telegram-tmux/bot.sh
+ExecStopPost=/bin/bash -c 'tmux kill-session -t claude-bot-b 2>/dev/null || true'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

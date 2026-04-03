@@ -1,0 +1,4 @@
+config.env
+.offset
+.busy
+*.log

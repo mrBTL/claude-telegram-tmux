@@ -91,11 +91,11 @@ send_to_claude() {
     local after_msg
     after_msg=$(echo "$capture" | tail -n +$((msg_line + 1)))
 
-    # Znajdź ostatni blok tekstowy ● (nie wywołanie narzędzia)
+    # Znajdź pierwszy blok tekstowy ● (nie wywołanie narzędzia)
     local response_offset
     response_offset=$(echo "$after_msg" | grep -n "^●" | \
         grep -vE "^[0-9]+:●[[:space:]]*(Bash|Read|Write|Edit|Glob|Grep|TodoWrite|WebFetch|WebSearch|Agent|mcp)\(" | \
-        tail -1 | cut -d: -f1)
+        head -1 | cut -d: -f1)
 
     if [ -z "$response_offset" ]; then
         return
@@ -104,6 +104,8 @@ send_to_claude() {
     echo "$after_msg" \
         | tail -n +$((response_offset)) \
         | awk '/^[[:space:]]*[>❯]/{exit} {print}' \
+        | grep -vE '^●[[:space:]]*(Bash|Read|Write|Edit|Glob|Grep|TodoWrite|WebFetch|WebSearch|Agent|mcp)\(' \
+        | grep -v '⎿' \
         | sed 's/^● //' \
         | sed 's/^[[:space:]]*\xc2\xa0*//' \
         | grep -vE '^[-─]+$' \

@@ -27,14 +27,15 @@ tg_send() {
 is_prompt_visible() {
     tmux capture-pane -t "$TMUX_SESSION" -S -200 -p 2>/dev/null | \
         sed 's/\xc2\xa0/ /g' | \
-        grep -E '^\s*[>❯]' | tail -1 | grep -qE '^\s*[>❯]\s*$'
+        grep -E '^\s*[>❯]' | tail -1 | \
+        grep -qvE '[[:alpha:]]'
 }
 
 start_session() {
     tmux has-session -t "$TMUX_SESSION" 2>/dev/null && return 0
 
     log "Starting Claude session"
-    tmux new-session -d -s "$TMUX_SESSION" -x 220 -y 500
+    tmux new-session -d -s "$TMUX_SESSION" -x 120 -y 50
     tmux set-option -t "$TMUX_SESSION" history-limit 50000
     tmux send-keys -t "$TMUX_SESSION" "cd '$WORK_DIR' && claude --dangerously-skip-permissions 2>/dev/null" Enter
 
@@ -108,6 +109,7 @@ send_to_claude() {
         | grep -v '⎿' \
         | sed 's/^● //' \
         | sed 's/^[[:space:]]*\xc2\xa0*//' \
+        | grep -E '[[:alnum:]]' \
         | grep -vE '^[-─]+$' \
         | grep -v '⏵⏵' \
         | grep -v '<°~°>' \

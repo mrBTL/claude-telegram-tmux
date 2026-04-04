@@ -62,6 +62,7 @@ send_to_claude() {
     local hash_last=$(tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null | md5sum)
     local stable=0
     local elapsed=0
+    local timed_out=0
 
     while [ $elapsed -lt 300 ]; do
         sleep 1
@@ -78,6 +79,12 @@ send_to_claude() {
             hash_last="$hash_cur"
         fi
     done
+
+    if [ $elapsed -ge 300 ]; then
+        timed_out=1
+        log "TIMEOUT — killing session"
+        kill_session
+    fi
 
     local capture
     capture=$(tmux capture-pane -t "$TMUX_SESSION" -S -500 -p 2>/dev/null)
@@ -137,8 +144,9 @@ handle_message() {
     rm -f "$BUSY_FILE"
 
     if [ -z "$response" ]; then
-        tg_send "❌ Brak odpowiedzi od Claude."
         log "EMPTY response"
+        tg_send "⏱ Claude nie odpowiedział w czasie — sesja zresetowana. Spróbuj ponownie."
+        kill_session
         return
     fi
 
@@ -176,11 +184,33 @@ while true; do
         update=$(echo "$updates" | jq ".result[$i]" 2>/dev/null) || continue
         update_id=$(echo "$update" | jq -r '.update_id' 2>/dev/null) || continue
         chat_id=$(echo "$update" | jq -r '.message.chat.id // empty' 2>/dev/null) || continue
-        text=$(echo "$update" | jq -r '.message.text // .message.caption // empty' 2>/dev/null) || continue
 
         save_offset $((update_id + 1))
 
         [ "$chat_id" != "$TELEGRAM_CHAT_ID" ] && { log "IGNORED msg from $chat_id"; continue; }
+
+        # Obsługa zdjęć
+        photo_id=$(echo "$update" | jq -r '.message.photo[-1].file_id // empty' 2>/dev/null)
+        caption=$(echo "$update" | jq -r '.message.caption // empty' 2>/dev/null)
+        text=$(echo "$update" | jq -r '.message.text // empty' 2>/dev/null)
+
+        if [ -n "$photo_id" ]; then
+            file_path=$(curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/getFile?file_id=${photo_id}" \
+                | jq -r '.result.file_path // empty')
+            if [ -z "$file_path" ]; then
+                tg_send "❌ Nie udało się pobrać zdjęcia."
+                continue
+            fi
+            local_path="/tmp/tg_photo_$(date +%s).jpg"
+            curl -s "https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${file_path}" -o "$local_path"
+            log "PHOTO saved: $local_path"
+            if [ -n "$caption" ]; then
+                text="Użyj narzędzia Read żeby obejrzeć zdjęcie: ${local_path} — a następnie odpowiedz na pytanie: ${caption}"
+            else
+                text="Użyj narzędzia Read żeby obejrzeć i opisać zdjęcie: ${local_path}"
+            fi
+        fi
+
         [ -z "$text" ] && { log "IGNORED empty message"; continue; }
 
         if [ "$text" = "/new" ]; then
@@ -190,8 +220,16 @@ while true; do
             continue
         fi
 
+        if [ "$text" = "/esc" ]; then
+            tmux send-keys -t "$TMUX_SESSION" Escape 2>/dev/null
+            rm -f "$BUSY_FILE"
+            log "ESC sent"
+            tg_send "⏹ Przerwano."
+            continue
+        fi
+
         if [ "$text" = "/start" ]; then
-            tg_send "👋 Bot B (tmux). Pisz — Claude działa w persistentnej sesji.\n\n/new — reset sesji"
+            tg_send "👋 Bot B (tmux). Pisz — Claude działa w persistentnej sesji.\n\n/new — reset sesji\n/esc — przerwij odpowiedź"
             continue
         fi
 
